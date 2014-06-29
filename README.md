@@ -20,7 +20,7 @@ argument is the number of bytes successfully sent since last call. This
 shall be used by the storage backend as an acknowledge.
 
 As an example, the LWFTP client can be called the following way:
-
+```
 static uint file_source(const char** pptr, uint maxlen)
 {
     static const uint mylen = 12345;
@@ -57,4 +57,4 @@ static void ftp_test(void)
         LOG_ERROR("lwftp_store returned %s", lwip_strerr(error));
     }
 }
-
+```
