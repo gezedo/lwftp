@@ -33,9 +33,19 @@
 #include "lwip/opt.h"
 #include "lwip/ip.h"
 
+enum lwftp_results {
+  LWFTP_RESULT_OK=0,
+  LWFTP_RESULT_ERR_UNKNOWN,   /** Unknown error */
+  LWFTP_RESULT_ERR_CONNECT,   /** Connection to server failed */
+  LWFTP_RESULT_ERR_HOSTNAME,  /** Failed to resolve server hostname */
+  LWFTP_RESULT_ERR_CLOSED,    /** Connection unexpectedly closed by remote server */
+  LWFTP_RESULT_ERR_TIMEOUT,   /** Connection timed out (server didn't respond in time) */
+  LWFTP_RESULT_ERR_SRVR_RESP  /** Server responded with an unknown response code */
+};
+
 /** LWFTP control connection state */
 typedef enum  {
-  LWFTP_CLOSED,
+  LWFTP_CLOSED=0,
   LWFTP_CONNECTED,
   LWFTP_USER_SENT,
   LWFTP_PASS_SENT,
@@ -45,7 +55,7 @@ typedef enum  {
   LWFTP_STORING,
   LWFTP_QUIT,
   LWFTP_QUIT_SENT,
-} lwtcp_state_t;
+} lwftp_state_t;
 
 /** LWFTP session structure */
 typedef struct {
@@ -54,9 +64,14 @@ typedef struct {
   u16_t         server_port;
   char          *remote_path;
   uint          (*data_source)(const char**, uint);
+  void          (*done_fn)(int);
+#ifndef LWFTP_HARDCODED_CREDENTIALS
+  char          *user;
+  char          *pass;
+#endif
   // Internal data
-  lwtcp_state_t   control_state;
-  lwtcp_state_t   data_state;
+  lwftp_state_t   control_state;
+  lwftp_state_t   data_state;
   struct tcp_pcb  *control_pcb;
   struct tcp_pcb  *data_pcb;
 } lwftp_session_t;

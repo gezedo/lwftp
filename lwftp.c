@@ -46,6 +46,15 @@
 
 #define PTRNLEN(s)  s,(sizeof(s)-1)
 
+#ifdef LWFTP_HARDCODED_CREDENTIALS
+#ifndef LWFTP_USER
+#error Need to define LWFTP_USER "username"
+#endif
+#ifndef LWFTP_PASS
+#error Need to define LWFTP_PASS "password"
+#endif
+#endif
+
 /** Close control or data pcb
  * @param pointer to lwftp session data
  */
@@ -58,7 +67,7 @@ static err_t lwftp_pcb_close(struct tcp_pcb *tpcb)
   tcp_sent(tpcb, NULL);
   error = tcp_close(tpcb);
   if ( error != ERR_OK ) {
-    LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:pcb close failure, not implemented\n"));
+    LWIP_DEBUGF(LWFTP_SEVERE, ("lwftp:pcb close failure, not implemented\n"));
   }
   return ERR_OK;
 }
@@ -77,15 +86,15 @@ static err_t lwftp_send_next_data(lwftp_session_t *s)
   if (s->data_source) {
     len = s->data_source(&data, s->data_pcb->mss);
     if (len) {
-      LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:sending %d bytes of data\n",len));
+      LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:sending %d bytes of data\n",len));
       error = tcp_write(s->data_pcb, data, len, 0);
       if (error!=ERR_OK) {
-        LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:write failure (%s), not implemented\n",lwip_strerr(error)));
+        LWIP_DEBUGF(LWFTP_SEVERE, ("lwftp:write failure (%s), not implemented\n",lwip_strerr(error)));
       }
     }
   }
   if (!len) {
-    LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:end of file\n"));
+    LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:end of file\n"));
     lwftp_pcb_close(s->data_pcb);
     s->data_pcb = NULL;
   }
@@ -100,7 +109,7 @@ static err_t lwftp_send_next_data(lwftp_session_t *s)
  */
 static err_t lwftp_data_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
-  LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:nothing implemented (line %d)\n",__LINE__));
+  LWIP_DEBUGF(LWFTP_SEVERE, ("lwftp:nothing implemented (line %d)\n",__LINE__));
   return ERR_ABRT;
 }
 
@@ -125,7 +134,12 @@ static err_t lwftp_data_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
  */
 static void lwftp_data_err(void *arg, err_t err)
 {
-  LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:nothing implemented (line %d)\n",__LINE__));
+  LWIP_UNUSED_ARG(err);
+  if (arg != NULL) {
+    lwftp_session_t *s = (lwftp_session_t*)arg;
+    LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:failed/error connecting for data to server (%s)\n",lwip_strerr(err)));
+    s->control_state = LWFTP_QUIT;  // gracefully exit on data error
+  }
 }
 
 /** Process newly connected PCB
@@ -138,10 +152,10 @@ static err_t lwftp_data_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
   lwftp_session_t *s = (lwftp_session_t*)arg;
 
   if ( err == ERR_OK ) {
-    LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:connected for data to server\n"));
+    LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:connected for data to server\n"));
     s->data_state = LWFTP_CONNECTED;
   } else {
-    LWIP_DEBUGF(LWFTP_WARNING, ("lwtcp:failed to connect for data to server (%s)\n",lwip_strerr(err)));
+    LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:err in data_connected (%s)\n",lwip_strerr(err)));
   }
   return err;
 }
@@ -155,7 +169,7 @@ static err_t lwftp_data_open(lwftp_session_t *s, struct pbuf *p)
   err_t error;
   char *ptr;
   ip_addr_t data_server;
-  u16 data_port;
+  u16_t data_port;
 
   // Find server connection parameter
   ptr = strchr(p->payload, '(');
@@ -185,18 +199,19 @@ static err_t lwftp_send_msg(lwftp_session_t *s, char* msg, size_t len)
 {
   err_t error;
 
-  LWIP_DEBUGF(LWFTP_TRACE,("lwtcp:sending %s",msg));
+  LWIP_DEBUGF(LWFTP_TRACE,("lwftp:sending %s",msg));
   error = tcp_write(s->control_pcb, msg, len, 0);
   if ( error != ERR_OK ) {
-      LWIP_DEBUGF(LWFTP_WARNING, ("lwtcp:cannot write (%s)\n",lwip_strerr(error)));
+      LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:cannot write (%s)\n",lwip_strerr(error)));
   }
   return error;
 }
 
 /** Close control connection
  * @param pointer to lwftp session data
+ * @param result to pass to callback fn (if called)
  */
-static void lwftp_control_close(lwftp_session_t *s)
+static void lwftp_control_close(lwftp_session_t *s, int result)
 {
   if (s->data_pcb) {
     lwftp_pcb_close(s->data_pcb);
@@ -205,6 +220,9 @@ static void lwftp_control_close(lwftp_session_t *s)
   if (s->control_pcb) {
     lwftp_pcb_close(s->control_pcb);
     s->control_pcb = NULL;
+  }
+  if ( (result >= 0) && s->done_fn ) {
+    s->done_fn(result);
   }
   s->control_state = LWFTP_CLOSED;
 }
@@ -221,14 +239,20 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
   // Try to get response number
   if (p) {
     response = strtoul(p->payload, NULL, 10);
-    LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:got response %d\n",response));
+    LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:got response %d\n",response));
   }
 
   switch (s->control_state) {
     case LWFTP_CONNECTED:
       if (response>0) {
         if (response==220) {
-          lwftp_send_msg(s, PTRNLEN("USER anonymous\n"));
+          lwftp_send_msg(s, PTRNLEN("USER "));
+#ifdef LWFTP_HARDCODED_CREDENTIALS
+          lwftp_send_msg(s, LWFTP_USER, strlen(LWFTP_USER));
+#else
+          lwftp_send_msg(s, s->user, strlen(s->user));
+#endif
+          lwftp_send_msg(s, PTRNLEN("\n"));
           s->control_state = LWFTP_USER_SENT;
         } else {
           s->control_state = LWFTP_QUIT;
@@ -238,7 +262,13 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
     case LWFTP_USER_SENT:
       if (response>0) {
         if (response==331) {
-          lwftp_send_msg(s, PTRNLEN("PASS none@nowhere.net\n"));
+          lwftp_send_msg(s, PTRNLEN("PASS "));
+#ifdef LWFTP_HARDCODED_CREDENTIALS
+          lwftp_send_msg(s, LWFTP_PASS, strlen(LWFTP_PASS));
+#else
+          lwftp_send_msg(s, s->pass, strlen(s->pass));
+#endif
+          lwftp_send_msg(s, PTRNLEN("\n"));
           s->control_state = LWFTP_PASS_SENT;
         } else {
           s->control_state = LWFTP_QUIT;
@@ -290,7 +320,9 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       break;
     case LWFTP_STORING:
       if (response>0) {
-        if (response!=226) {
+        if (response==226) {
+	  s->data_state = LWFTP_STORING;  // signal transfer OK
+        } else {
           LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:expected 226, received %d\n",response));
         }
         s->control_state = LWFTP_QUIT;
@@ -298,14 +330,19 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       break;
     case LWFTP_QUIT_SENT:
       if (response>0) {
-        if (response!=221) {
+	int result = LWFTP_RESULT_ERR_SRVR_RESP;
+        if (response==221) {
+	  if (s->data_state == LWFTP_STORING){ // check for transfer OK
+	    result = LWFTP_RESULT_OK;
+          }
+        } else {
           LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:expected 221, received %d\n",response));
         }
-        lwftp_control_close(s);
+        lwftp_control_close(s, result);
       }
       break;
     default:
-      LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:unhandled state (%d)\n",s->control_state));
+      LWIP_DEBUGF(LWFTP_SEVERE, ("lwftp:unhandled state (%d)\n",s->control_state));
   }
 
   // Quit when required to do so
@@ -331,12 +368,12 @@ static err_t lwftp_control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
       tcp_recved(tpcb, p->tot_len);
       lwftp_control_process(s, tpcb, p);
     } else {
-      LWIP_DEBUGF(LWFTP_WARNING, ("lwtcp:connection closed by remote host\n"));
-      lwftp_control_close(s);
+      LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:connection closed by remote host\n"));
+      lwftp_control_close(s, LWFTP_RESULT_ERR_CLOSED);
     }
   } else {
-    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwtcp:failed to receive (%s)\n",lwip_strerr(err)));
-    lwftp_control_close(s);
+    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwftp:failed to receive (%s)\n",lwip_strerr(err)));
+    lwftp_control_close(s, LWFTP_RESULT_ERR_UNKNOWN);
   }
   return err;
 }
@@ -348,7 +385,7 @@ static err_t lwftp_control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
  */
 static err_t lwftp_control_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
 {
-  LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:successfully sent %d bytes\n",len));
+  LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:successfully sent %d bytes\n",len));
   return ERR_OK;
 }
 
@@ -358,7 +395,19 @@ static err_t lwftp_control_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
  */
 static void lwftp_control_err(void *arg, err_t err)
 {
-  LWIP_DEBUGF(LWFTP_SEVERE, ("lwtcp:nothing implemented (line %d)\n",__LINE__));
+  LWIP_UNUSED_ARG(err);
+  if (arg != NULL) {
+    lwftp_session_t *s = (lwftp_session_t*)arg;
+    int result;
+    if( s->control_state == LWFTP_CLOSED ) {
+      LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:failed to connect to server (%s)\n",lwip_strerr(err)));
+      result = LWFTP_RESULT_ERR_CONNECT;
+    } else {
+      LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:connection closed by remote host\n"));
+      result = LWFTP_RESULT_ERR_CLOSED;
+    }
+    lwftp_control_close(s, result);
+  }
 }
 
 
@@ -372,10 +421,10 @@ static err_t lwftp_control_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
   lwftp_session_t *s = (lwftp_session_t*)arg;
 
   if ( err == ERR_OK ) {
-    LWIP_DEBUGF(LWFTP_TRACE, ("lwtcp:connected to server\n"));
+    LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:connected to server\n"));
       s->control_state = LWFTP_CONNECTED;
   } else {
-    LWIP_DEBUGF(LWFTP_WARNING, ("lwtcp:failed to connect to server (%s)\n",lwip_strerr(err)));
+    LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:err in control_connected (%s)\n",lwip_strerr(err)));
   }
   return err;
 }
@@ -389,20 +438,24 @@ err_t lwftp_store(lwftp_session_t *s)
   err_t error;
 
   // Check user supplied data
-  if ((s->control_state!=LWFTP_CLOSED) || !s->remote_path || s->control_pcb || s->data_pcb) {
-    LWIP_DEBUGF(LWFTP_WARNING, ("lwtcp:invalid session data\n"));
+  if ((s->control_state!=LWFTP_CLOSED) || !s->remote_path || s->control_pcb || s->data_pcb
+#ifndef LWFTP_HARDCODED_CREDENTIALS
+    || !s->user || !s->pass
+#endif
+    ) {
+    LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:invalid session data\n"));
     return ERR_ARG;
   }
   // Get sessions pcb
   s->control_pcb = tcp_new();
   if (!s->control_pcb) {
-    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwtcp:cannot alloc control_pcb (low memory?)\n"));
+    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwftp:cannot alloc control_pcb (low memory?)\n"));
     error = ERR_MEM;
     goto exit;
   }
   s->data_pcb = tcp_new();
   if (!s->data_pcb) {
-    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwtcp:cannot alloc data_pcb (low memory?)\n"));
+    LWIP_DEBUGF(LWFTP_SERIOUS, ("lwftp:cannot alloc data_pcb (low memory?)\n"));
     error = ERR_MEM;
     goto close_pcb;
   }
@@ -414,11 +467,11 @@ err_t lwftp_store(lwftp_session_t *s)
   error = tcp_connect(s->control_pcb, &s->server_ip, s->server_port, lwftp_control_connected);
   if ( error == ERR_OK ) goto exit;
 
-  LWIP_DEBUGF(LWFTP_SERIOUS, ("lwtcp:cannot connect control_pcb (%s)\n", lwip_strerr(error)));
+  LWIP_DEBUGF(LWFTP_SERIOUS, ("lwftp:cannot connect control_pcb (%s)\n", lwip_strerr(error)));
 
 close_pcb:
   // Release pcbs in case of failure
-  lwftp_control_close(s);
+  lwftp_control_close(s, -1);
 
 exit:
   return error;

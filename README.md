@@ -6,8 +6,7 @@ A lightweight FTP client using raw API of LWIP
 This client is designed with a very low level interface, and can be
 used as a library to build smarter clients with more features.
 
-Only STOR operation is supported, and server must accept anonymous,
-binary, passive connexions.
+Only STOR operation is supported, and server must accept binary, passive connections.
 
 There is no storage back-end. The requester provides a callback to
 source data.
@@ -19,8 +18,27 @@ argument maxlen.
 argument is the number of bytes successfully sent since last call. This
 shall be used by the storage backend as an acknowledge.
 
+* Single-user, hardcoded credentials:
+#define LWFTP_HARDCODED_CREDENTIALS
+#define LWFTP_USER "username"
+#define LWFTP_PASS "password"
+* per-session credentials:
+see example
+
+When the session finishes, either successfully or not, the user provided
+callback done_fn is called with the proper result code
+
 As an example, the LWFTP client can be called the following way:
 ```
+static void imdone(int result)
+{
+    if(result == LWFTP_RESULT_OK){
+        // handle end of transfer
+    } else {
+        // handle error
+    }
+}
+
 static uint file_source(const char** pptr, uint maxlen)
 {
     static const uint mylen = 12345;
@@ -41,7 +59,7 @@ static uint file_source(const char** pptr, uint maxlen)
 
 static void ftp_test(void)
 {
-    lwftp_session_t s;
+    static lwftp_session_t s;	// static content for the whole FTP session
     err_t error;
 
     // Initialize session data
@@ -49,7 +67,11 @@ static void ftp_test(void)
     IP4_ADDR(&s.server_ip, 192,168,0,31);
     s.server_port = 21;
     s.data_source = file_source;
+    s.done_fn = imdone;
     s.remote_path = "/data.bin";
+    // set these two if not using hardcoded credentials
+    s.user = "username";	// static content
+    s.pass = "password";	// static content
 
     // Store this file
     error = lwftp_store(&s);
