@@ -33,12 +33,15 @@ argument is the number of bytes successfully sent since last call. This
 shall be used by the storage backend as an acknowledge.
 
 * Single-user, hardcoded credentials:
+```
 #define LWFTP_HARDCODED_CREDENTIALS
 #define LWFTP_USER "username"
 #define LWFTP_PASS "password"
+```
 * per-session credentials:
 see example
 
+As an example, the LWFTP client can be called the following way:
 ```
 static uint file_source(const char** pptr, uint maxlen)
 {
