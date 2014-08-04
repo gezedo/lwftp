@@ -63,12 +63,10 @@ typedef struct {
   ip_addr_t     server_ip;
   u16_t         server_port;
   char          *remote_path;
-  uint          (*data_source)(const char**, uint);
-  void          (*done_fn)(int);
-#ifndef LWFTP_HARDCODED_CREDENTIALS
   char          *user;
   char          *pass;
-#endif
+  uint          (*data_source)(const char**, uint);
+  void          (*done_fn)(int);
   // Internal data
   lwftp_state_t   control_state;
   lwftp_state_t   data_state;

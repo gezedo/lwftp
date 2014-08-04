@@ -46,14 +46,6 @@
 
 #define PTRNLEN(s)  s,(sizeof(s)-1)
 
-#ifdef LWFTP_HARDCODED_CREDENTIALS
-#ifndef LWFTP_USER
-#error Need to define LWFTP_USER "username"
-#endif
-#ifndef LWFTP_PASS
-#error Need to define LWFTP_PASS "password"
-#endif
-#endif
 
 /** Close control or data pcb
  * @param pointer to lwftp session data
@@ -247,11 +239,7 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       if (response>0) {
         if (response==220) {
           lwftp_send_msg(s, PTRNLEN("USER "));
-#ifdef LWFTP_HARDCODED_CREDENTIALS
-          lwftp_send_msg(s, LWFTP_USER, strlen(LWFTP_USER));
-#else
           lwftp_send_msg(s, s->user, strlen(s->user));
-#endif
           lwftp_send_msg(s, PTRNLEN("\n"));
           s->control_state = LWFTP_USER_SENT;
         } else {
@@ -263,11 +251,7 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       if (response>0) {
         if (response==331) {
           lwftp_send_msg(s, PTRNLEN("PASS "));
-#ifdef LWFTP_HARDCODED_CREDENTIALS
-          lwftp_send_msg(s, LWFTP_PASS, strlen(LWFTP_PASS));
-#else
           lwftp_send_msg(s, s->pass, strlen(s->pass));
-#endif
           lwftp_send_msg(s, PTRNLEN("\n"));
           s->control_state = LWFTP_PASS_SENT;
         } else {
@@ -438,11 +422,13 @@ err_t lwftp_store(lwftp_session_t *s)
   err_t error;
 
   // Check user supplied data
-  if ((s->control_state!=LWFTP_CLOSED) || !s->remote_path || s->control_pcb || s->data_pcb
-#ifndef LWFTP_HARDCODED_CREDENTIALS
-    || !s->user || !s->pass
-#endif
-    ) {
+  if ( (s->control_state!=LWFTP_CLOSED) ||
+       !s->remote_path ||
+       s->control_pcb ||
+       s->data_pcb ||
+       !s->user ||
+       !s->pass )
+  {
     LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:invalid session data\n"));
     return ERR_ARG;
   }
