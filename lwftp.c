@@ -76,7 +76,7 @@ static err_t lwftp_send_next_data(lwftp_session_t *s)
   err_t error = ERR_OK;
 
   if (s->data_source) {
-    len = s->data_source(&data, s->data_pcb->mss);
+    len = s->data_source(s->data_handle, &data, s->data_pcb->mss);
     if (len) {
       LWIP_DEBUGF(LWFTP_TRACE, ("lwftp:sending %d bytes of data\n",len));
       error = tcp_write(s->data_pcb, data, len, 0);
@@ -115,7 +115,7 @@ static err_t lwftp_data_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
   lwftp_session_t *s = (lwftp_session_t*)arg;
 
   if ( s->data_source ) {
-    s->data_source(NULL, len);
+    s->data_source(s->data_handle, NULL, len);
   }
   return lwftp_send_next_data(s);
 }
@@ -215,7 +215,7 @@ static void lwftp_control_close(lwftp_session_t *s, int result)
   }
   s->control_state = LWFTP_CLOSED;
   if ( (result >= 0) && s->done_fn ) {
-    s->done_fn(result);
+    s->done_fn(s->data_handle, result);
   }
 }
 

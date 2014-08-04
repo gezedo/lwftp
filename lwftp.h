@@ -66,8 +66,9 @@ typedef struct {
   char          *remote_path;
   char          *user;
   char          *pass;
-  uint          (*data_source)(const char**, uint);
-  void          (*done_fn)(int);
+  void          *data_handle;
+  uint          (*data_source)(void*, const char**, uint);
+  void          (*done_fn)(void*, int);
   // Internal data
   lwftp_state_t   control_state;
   lwftp_state_t   data_state;
