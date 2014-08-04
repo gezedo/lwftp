@@ -55,6 +55,7 @@ typedef enum  {
   LWFTP_STORING,
   LWFTP_QUIT,
   LWFTP_QUIT_SENT,
+  LWFTP_CLOSING,
 } lwftp_state_t;
 
 /** LWFTP session structure */

@@ -213,10 +213,10 @@ static void lwftp_control_close(lwftp_session_t *s, int result)
     lwftp_pcb_close(s->control_pcb);
     s->control_pcb = NULL;
   }
+  s->control_state = LWFTP_CLOSED;
   if ( (result >= 0) && s->done_fn ) {
     s->done_fn(result);
   }
-  s->control_state = LWFTP_CLOSED;
 }
 
 /** Main client state machine
@@ -227,6 +227,7 @@ static void lwftp_control_close(lwftp_session_t *s, int result)
 static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, struct pbuf *p)
 {
   uint response = 0;
+  int result = LWFTP_RESULT_ERR_SRVR_RESP;
 
   // Try to get response number
   if (p) {
@@ -305,36 +306,46 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
     case LWFTP_STORING:
       if (response>0) {
         if (response==226) {
-	  s->data_state = LWFTP_STORING;  // signal transfer OK
+          s->data_state = LWFTP_STORING;  // signal transfer OK
         } else {
           LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:expected 226, received %d\n",response));
         }
+        // Quit anyway after any message received during STOR
         s->control_state = LWFTP_QUIT;
       }
       break;
     case LWFTP_QUIT_SENT:
       if (response>0) {
-	int result = LWFTP_RESULT_ERR_SRVR_RESP;
         if (response==221) {
-	  if (s->data_state == LWFTP_STORING){ // check for transfer OK
-	    result = LWFTP_RESULT_OK;
+          if (s->data_state == LWFTP_STORING){ // check for transfer OK
+            result = LWFTP_RESULT_OK;
           }
         } else {
           LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:expected 221, received %d\n",response));
         }
-        lwftp_control_close(s, result);
+        s->control_state = LWFTP_CLOSING;
       }
       break;
     default:
       LWIP_DEBUGF(LWFTP_SEVERE, ("lwftp:unhandled state (%d)\n",s->control_state));
   }
 
-  // Quit when required to do so
-  if ( s->control_state == LWFTP_QUIT ) {
-    lwftp_send_msg(s, PTRNLEN("QUIT\n"));
-    s->control_state = LWFTP_QUIT_SENT;
+  // Free receiving pbuf if any
+  if (p) {
+    pbuf_free(p);
   }
 
+  // Handle second step in state machine
+  switch ( s->control_state ) {
+    case LWFTP_QUIT:
+      lwftp_send_msg(s, PTRNLEN("QUIT\n"));
+      s->control_state = LWFTP_QUIT_SENT;
+      break;
+    case LWFTP_CLOSING:
+      // this function frees s, no use of s is allowed after
+      return lwftp_control_close(s, result);
+    default:;
+  }
 }
 
 /** Handle control connection incoming data
