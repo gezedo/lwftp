@@ -63,9 +63,9 @@ typedef struct {
   // User interface
   ip_addr_t     server_ip;
   u16_t         server_port;
-  char          *remote_path;
-  char          *user;
-  char          *pass;
+  const char    *remote_path;
+  const char    *user;
+  const char    *pass;
   void          *data_handle;
   uint          (*data_source)(void*, const char**, uint);
   void          (*done_fn)(void*, int);

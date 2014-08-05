@@ -187,7 +187,7 @@ static err_t lwftp_data_open(lwftp_session_t *s, struct pbuf *p)
  * @param pointer to lwftp session data
  * @param pointer to message string
  */
-static err_t lwftp_send_msg(lwftp_session_t *s, char* msg, size_t len)
+static err_t lwftp_send_msg(lwftp_session_t *s, const char* msg, size_t len)
 {
   err_t error;
 
