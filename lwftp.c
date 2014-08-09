@@ -131,6 +131,7 @@ static void lwftp_data_err(void *arg, err_t err)
     lwftp_session_t *s = (lwftp_session_t*)arg;
     LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:failed/error connecting for data to server (%s)\n",lwip_strerr(err)));
     s->control_state = LWFTP_QUIT;  // gracefully exit on data error
+    s->data_pcb = NULL; // No need to de-allocate PCB
   }
 }
 
@@ -401,6 +402,7 @@ static void lwftp_control_err(void *arg, err_t err)
       LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:connection closed by remote host\n"));
       result = LWFTP_RESULT_ERR_CLOSED;
     }
+    s->control_pcb = NULL; // No need to de-allocate PCB
     lwftp_control_close(s, result);
   }
 }
