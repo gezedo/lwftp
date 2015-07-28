@@ -191,10 +191,13 @@ static err_t lwftp_data_open(lwftp_session_t *s, struct pbuf *p)
   // Find server connection parameter
   ptr = strchr(p->payload, '(');
   if (!ptr) return ERR_BUF;
-  ip4_addr1(&data_server) = strtoul(ptr+1,&ptr,10);
-  ip4_addr2(&data_server) = strtoul(ptr+1,&ptr,10);
-  ip4_addr3(&data_server) = strtoul(ptr+1,&ptr,10);
-  ip4_addr4(&data_server) = strtoul(ptr+1,&ptr,10);
+  do {
+    unsigned int a = strtoul(ptr+1,&ptr,10);
+    unsigned int b = strtoul(ptr+1,&ptr,10);
+    unsigned int c = strtoul(ptr+1,&ptr,10);
+    unsigned int d = strtoul(ptr+1,&ptr,10);
+    IP4_ADDR(&data_server,a,b,c,d);
+  } while(0);
   data_port  = strtoul(ptr+1,&ptr,10) << 8;
   data_port |= strtoul(ptr+1,&ptr,10) & 255;
   if (*ptr!=')') return ERR_BUF;
