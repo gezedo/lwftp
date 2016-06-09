@@ -1,12 +1,21 @@
-lwftp
-=====
+# Overview
 
 A lightweight FTP client using raw API of LWIP
 
-This client is designed with a very low level interface, and can be
-used as a library to build smarter clients with more features.
+This client is designed as a state machine with a very low level
+interface. It can be used as a library to build smarter clients with
+more features.
 
-Only STOR operation is supported, and server must accept binary, passive connections.
+The state machine supports 4 basic operations:
+* connect
+* store
+* retrieve
+* close
+
+LWFTP requires the remote server to support binary transfer and
+passive connection.
+
+#### Notes on data callbacks
 
 There is no storage back-end. The requester provides a callback to
 source data.
@@ -18,34 +27,62 @@ argument maxlen.
 argument is the number of bytes successfully sent since last call. This
 shall be used by the storage backend as an acknowledge.
 
-* Single-user, hardcoded credentials:
-#define LWFTP_HARDCODED_CREDENTIALS
-#define LWFTP_USER "username"
-#define LWFTP_PASS "password"
-* per-session credentials:
-see example
-
-When the session finishes, either successfully or not, the user provided
-callback done_fn is called with the proper result code
-
-As an example, the LWFTP client can be called the following way:
+# Asynchronous example
 ```
-static void imdone(int result)
+static void ftp_retr_callback(void *arg, int result)
 {
-    if(result == LWFTP_RESULT_OK){
-        // handle end of transfer
-    } else {
-        // handle error
+    lwftp_session_t *s = (lwftp_session_t)arg;
+
+    if ( result != LWFTP_RESULT_OK ) {
+        LOG_ERROR("retr failed (%d)", result);
+        return lwftp_close(s);
     }
+    // Test is done
+    lwftp_close(s);
 }
 
-static uint file_source(const char** pptr, uint maxlen)
+static uint data_sink(void *arg, const char* ptr, uint len)
+{
+    static const uint mylen = 12345;
+    static char * const myconfig = (char*)0x20000000;
+    static uint offset = 0;
+
+    if (ptr) {
+        len = min( len, mylen-offset );
+        memcpy( myconfig+offset, ptr, len );
+        offset += len;
+    }
+    return len;
+}
+
+static void ftp_stor_callback(void *arg, int result)
+{
+    lwftp_session_t *s = (lwftp_session_t)arg;
+    err_t error;
+
+    if ( result != LWFTP_RESULT_OK ) {
+        LOG_ERROR("stor failed (%d)", result);
+        return lwftp_close(s);
+    }
+    // Continue with RETR request
+    s->data_sink = data_sink;
+    s->done_fn = ftp_retr_callback;
+    s->remote_path = "configfile";
+    error = lwftp_retrieve(s);
+    if ( error != LWFTP_RESULT_INPROGRESS ) {
+        LOG_ERROR("lwftp_retrieve failed (%d)", error);
+    }
+    // FTP session will continue with RETR and sink callbacks
+}
+
+static uint data_source(void *arg, const char** pptr, uint maxlen)
 {
     static const uint mylen = 12345;
     static const char * const mydata = (char*)0x20000000;
     static uint offset = 0;
     uint len = 0;
 
+    // Check for data request or data sent notice
     if (pptr) {
         len = mylen - offset;
         if ( len > maxlen ) len = maxlen;
@@ -57,26 +94,46 @@ static uint file_source(const char** pptr, uint maxlen)
     return len;
 }
 
+static void ftp_connect_callback(void *arg, int result)
+{
+    lwftp_session_t *s = (lwftp_session_t)arg;
+    err_t error;
+
+    if ( result != LWFTP_RESULT_LOGGED ) {
+        LOG_ERROR("login failed (%d)", result);
+        return lwftp_close(s);
+    }
+    // Continue with STOR request
+    s->data_source = data_source;
+    s->done_fn = ftp_stor_callback;
+    s->remotepath = "logfile";
+    error = lwftp_store(s);
+    if ( error != LWFTP_RESULT_INPROGRESS ) {
+        LOG_ERROR("lwftp_store failed (%d)", error);
+    }
+    // FTP session will continue with STOR and source callbacks
+}
+
 static void ftp_test(void)
 {
-    static lwftp_session_t s;	// static content for the whole FTP session
+    static lwftp_session_t s;   // static content for the whole FTP session
     err_t error;
 
     // Initialize session data
     memset(&s, 0, sizeof(s));
     IP4_ADDR(&s.server_ip, 192,168,0,31);
     s.server_port = 21;
-    s.data_source = file_source;
-    s.done_fn = imdone;
-    s.remote_path = "/data.bin";
-    // set these two if not using hardcoded credentials
-    s.user = "username";	// static content
-    s.pass = "password";	// static content
+    s.done_fn = ftp_connect_callback;
+    s.user = "username";
+    s.pass = "password";
+    // We have no extra user data, simply use the session structure
+    s.handle = &s;
 
-    // Store this file
-    error = lwftp_store(&s);
-    if ( error != ERR_OK ) {
-        LOG_ERROR("lwftp_store returned %s", lwip_strerr(error));
+    // Start the connection state machine
+    error = lwftp_connect(&s);
+    if ( error != LWFTP_RESULT_INPROGRESS ) {
+        LOG_ERROR("lwftp_connect failed (%d)", error);
     }
+    // FTP session will continue with the connection callback
 }
 ```
