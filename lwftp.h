@@ -30,8 +30,15 @@
  *
  */
 
+#ifndef LWFTP_H
+#define LWFTP_H
+
 #include "lwip/opt.h"
 #include "lwip/ip.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 enum lwftp_results {
   LWFTP_RESULT_OK=0,
@@ -46,7 +53,8 @@ enum lwftp_results {
   LWFTP_RESULT_ERR_TIMEOUT,   /** Connection timed out (server didn't respond in time) */
   LWFTP_RESULT_ERR_SRVR_RESP, /** Server responded with an unknown response code */
   LWFTP_RESULT_ERR_INTERNAL,  /** Internal network stack error */
-  LWFTP_RESULT_ERR_LOCAL      /** Local storage error */
+  LWFTP_RESULT_ERR_LOCAL,     /** Local storage error */
+  LWFTP_RESULT_ERR_FILENAME   /** Remote host could not find file */
 };
 
 /** LWFTP control connection state */
@@ -93,3 +101,9 @@ err_t lwftp_connect(lwftp_session_t *s);
 err_t lwftp_store(lwftp_session_t *s);
 err_t lwftp_retrieve(lwftp_session_t *s);
 void  lwftp_close(lwftp_session_t *s);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // LWFTP_H

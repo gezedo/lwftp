@@ -353,7 +353,12 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       if (response>0) {
         if (response==150) {
           s->control_state = LWFTP_XFERING;
-        } else {
+        } else if (response==550) {
+            s->control_state = LWFTP_DATAEND;
+            result = LWFTP_RESULT_ERR_FILENAME;
+            LWIP_DEBUGF(LWFTP_WARNING, ("lwftp: Failed to open file '%s'\n", s->remote_path));
+        }
+        else {
           s->control_state = LWFTP_DATAEND;
           LWIP_DEBUGF(LWFTP_WARNING, ("lwftp:expected 150, received %d\n",response));
         }
@@ -412,6 +417,7 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
       break;
     case LWFTP_QUIT:
       lwftp_send_msg(s, PTRNLEN("QUIT\n"));
+      tcp_output(s->control_pcb);
       s->control_state = LWFTP_QUIT_SENT;
       break;
     case LWFTP_CLOSING:
@@ -464,6 +470,7 @@ static void lwftp_send_QUIT(void *arg)
 
   if (s->control_pcb) {
     lwftp_send_msg(s, PTRNLEN("QUIT\n"));
+    tcp_output(s->control_pcb);
     s->control_state = LWFTP_QUIT_SENT;
   }
 }
