@@ -106,7 +106,7 @@ static void ftp_connect_callback(void *arg, int result)
     // Continue with STOR request
     s->data_source = data_source;
     s->done_fn = ftp_stor_callback;
-    s->remotepath = "logfile";
+    s->remote_path = "logfile";
     error = lwftp_store(s);
     if ( error != LWFTP_RESULT_INPROGRESS ) {
         LOG_ERROR("lwftp_store failed (%d)", error);
