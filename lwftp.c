@@ -49,6 +49,7 @@
 #define PTRNLEN(s)  s,(sizeof(s)-1)
 
 static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, struct pbuf *p);
+static void lwftp_data_close(lwftp_session_t *s, int result);
 
 /** Close control or data pcb
  * @param pointer to lwftp session data
@@ -89,8 +90,7 @@ static err_t lwftp_send_next_data(lwftp_session_t *s)
   }
   if (!len) {
     LWIP_DEBUGF(LWFTP_STATE, ("lwftp:end of file\n"));
-    lwftp_pcb_close(s->data_pcb);
-    s->data_pcb = NULL;
+    lwftp_close(s);
   }
   return ERR_OK;
 }
@@ -121,6 +121,9 @@ static err_t lwftp_data_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Instead we kindly tell data sink we are done
     if (s->data_sink) {
       s->data_sink(s->handle, NULL, 0);
+    }
+    if(s->control_state == LWFTP_DATAEND) {
+      lwftp_data_close(s, LWFTP_RESULT_OK);
     }
   }
   return ERR_OK;
@@ -412,7 +415,6 @@ static void lwftp_control_process(lwftp_session_t *s, struct tcp_pcb *tpcb, stru
   // Handle second step in state machine
   switch ( s->control_state ) {
     case LWFTP_DATAEND:
-      lwftp_data_close(s, result);
       s->control_state = LWFTP_LOGGED;
       break;
     case LWFTP_QUIT:
